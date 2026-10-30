@@ -902,25 +902,21 @@ public class VersionUpdateDialogViewModel : Screen
         }
 
         string? rawUrl = _assetsObject["browser_download_url"]?.ToString();
-        var urls = new List<string>();
+        if (string.IsNullOrEmpty(rawUrl))
+        {
+            _logger.Error("Asset browser_download_url is missing");
+            OutputDownloadProgress(downloading: false, output: LocalizationHelper.GetString("NewVersionDownloadFailedTitle"));
+            return CheckUpdateRetT.FailedToGetInfo;
+        }
 
+        List<string>? officialMirrors = null;
         if (SettingsViewModel.VersionUpdateSettings.UpdateSource == UpdateSource.GitHub && !SettingsViewModel.VersionUpdateSettings.ForceGithubGlobalSource)
         {
-            var mirrors = _assetsObject["mirrors"]?.ToObject<List<string>>();
-
-            if (mirrors != null)
-            {
-                urls.AddRange(mirrors);
-            }
+            officialMirrors = _assetsObject["mirrors"]?.ToObject<List<string>>();
         }
 
-        // 负载均衡
-        // var rand = new Random();
-        // urls = urls.OrderBy(_ => rand.Next()).ToList();
-        if (rawUrl != null)
-        {
-            urls.Add(rawUrl);
-        }
+        // 候选顺序：官方镜像 → 国内公共 GitHub 代理 → GitHub 直连，随后并行测速取最快者
+        var urls = GithubMirrorHelper.BuildDownloadCandidates(rawUrl, officialMirrors);
 
         _logger.Information("Start test legacy download urls");
 
@@ -1412,13 +1408,10 @@ public class VersionUpdateDialogViewModel : Screen
                     return null;
                 }
 
-                var urls = new List<string>();
-                if (fullPackage["mirrors"]?.ToObject<List<string>>() is { } mirrors)
-                {
-                    urls.AddRange(mirrors);
-                }
-
-                urls.Add(rawUrl);
+                // 候选顺序：官方镜像 → 国内公共 GitHub 代理 → GitHub 直连，下载时逐个回退
+                var urls = GithubMirrorHelper.BuildDownloadCandidates(
+                    rawUrl,
+                    fullPackage["mirrors"]?.ToObject<List<string>>());
                 return new MaaApiRepairPackage(packageName, fullPackage, urls);
             }
 

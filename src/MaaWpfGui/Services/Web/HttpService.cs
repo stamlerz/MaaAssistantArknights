@@ -38,6 +38,12 @@ namespace MaaWpfGui.Services.Web;
 
 public class HttpService : IHttpService
 {
+    /// <summary>
+    /// 下载时连续 ｢无任何数据到达｣ 的超时时间（秒）：连接建立、等待响应头与读取内容流共用。
+    /// 超时即中止本次下载并交由上层切换镜像/重试，避免直连 GitHub 时半开连接无限卡住。
+    /// </summary>
+    private const int DownloadStallTimeoutSeconds = 30;
+
     private readonly string _userAgent;
 
     private static string Proxy
@@ -256,13 +262,26 @@ public class HttpService : IHttpService
         _logger.Information("Start to download file from {Uri} and save to {TempPath}", uri, fullFilePathWithTemp);
 
         HttpResponseMessage response;
+        using var downloadCts = new CancellationTokenSource();
         try
         {
-            response = await GetAsync(uri, extraHeader: new Dictionary<string, string> { { "Accept", contentType ?? "application/octet-stream" } }, httpCompletionOption: HttpCompletionOption.ResponseHeadersRead);
+            // 建立连接与等待响应头阶段同样受停滞超时保护
+            downloadCts.CancelAfter(TimeSpan.FromSeconds(DownloadStallTimeoutSeconds));
+            response = await GetAsync(
+                uri,
+                extraHeader: new Dictionary<string, string> { { "Accept", contentType ?? "application/octet-stream" } },
+                httpCompletionOption: HttpCompletionOption.ResponseHeadersRead,
+                token: downloadCts.Token);
             if (response.StatusCode != HttpStatusCode.OK)
             {
+                response.Dispose();
                 return false;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Warning("Download from {Uri} timed out while waiting for response headers ({Seconds}s with no data)", uri, DownloadStallTimeoutSeconds);
+            return false;
         }
         catch (Exception e)
         {
@@ -273,7 +292,7 @@ public class HttpService : IHttpService
         var success = true;
         try
         {
-            var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            var stream = await response.Content.ReadAsStreamAsync(downloadCts.Token).ConfigureAwait(false);
             await using (var tempFileStream = new FileStream(fullFilePathWithTemp, FileMode.Create, FileAccess.Write))
             {
                 // 记录初始化
@@ -286,10 +305,13 @@ public class HttpService : IHttpService
                 VersionUpdateDialogViewModel.OutputDownloadProgress();
 
                 byte[] buffer = new byte[81920];
-                int byteLen = await stream.ReadAsync(buffer, 0, buffer.Length);
+                int byteLen = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), downloadCts.Token);
 
                 while (byteLen > 0)
                 {
+                    // 每收到一块数据就重置停滞计时；连续无数据超过阈值则中止，交由上层切换镜像/重试
+                    downloadCts.CancelAfter(TimeSpan.FromSeconds(DownloadStallTimeoutSeconds));
+
                     valueInOneSecond += byteLen;
                     double ts = DateTime.Now.Subtract(beforeDt).TotalSeconds;
                     if (ts > 1)
@@ -304,11 +326,16 @@ public class HttpService : IHttpService
 
                     // 输入输出
                     tempFileStream.Write(buffer, 0, byteLen);
-                    byteLen = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    byteLen = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), downloadCts.Token);
                 }
             }
 
             File.Copy(fullFilePathWithTemp, fullFilePath, true);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Warning("Download from {Uri} stalled for more than {Seconds}s with no data, aborted", uri, DownloadStallTimeoutSeconds);
+            success = false;
         }
         catch (Exception e)
         {
@@ -317,6 +344,7 @@ public class HttpService : IHttpService
         }
         finally
         {
+            response.Dispose();
             if (File.Exists(fullFilePathWithTemp))
             {
                 _logger.Information("Remove download temp file {TempFile}", fullFilePathWithTemp);

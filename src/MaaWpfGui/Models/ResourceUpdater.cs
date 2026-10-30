@@ -46,7 +46,20 @@ public static class ResourceUpdater
         string githubZipFile = Path.Combine(PathsHelper.BaseDir, GithubZipFileName);
         string extractFolder = Path.Combine(PathsHelper.BaseDir, "MaaResourceGithub");
 
-        if (!await DownloadFullPackageAsync(MaaUrls.GithubResourceUpdate, githubZipFile, true).ConfigureAwait(false))
+        // 直连 GitHub 在国内容易卡住，按 ｢国内公共 GitHub 代理 → GitHub 直连｣ 的候选顺序逐个回退
+        var downloaded = false;
+        foreach (var url in GithubMirrorHelper.BuildDownloadCandidates(MaaUrls.GithubResourceUpdate))
+        {
+            if (await DownloadFullPackageAsync(url, githubZipFile, true).ConfigureAwait(false))
+            {
+                downloaded = true;
+                break;
+            }
+
+            _logger.Warning("Failed to download resource package from {Url}, trying next candidate", url);
+        }
+
+        if (!downloaded)
         {
             Fail();
             return false;
