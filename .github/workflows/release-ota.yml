@@ -142,7 +142,7 @@ jobs:
   make-ota-mac:
     name: Build and Upload OTA for macOS
     needs: create-tag
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Fetch release information
         run: gh release list --repo 'MaaAssistantArknights/MaaAssistantArknights' --limit ${{ inputs.limit || 31 }} | tee ./release_maa.txt
