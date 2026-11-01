@@ -27,6 +27,14 @@
         "text": ["ploy the", "Gather"],
         "roi": [400, 54, 480, 38]
     },
+    "RelaunchAnchor@RA@RA1-DeployGatheringBaseSwipe": {
+        "preDelay": 500,
+        "specialParams": [600, 0, 37, 1]
+    },
+    "RelaunchAnchor@RA@RA1-DeployOperatorSwipe": {
+        "preDelay": 250,
+        "specialParams": [600, 0, 37, 1]
+    },
     "RelaunchAnchor@RA@RA1-DeployOperatorDirection": {
         "roi": [50, 115, 90, 25],
         "text": ["Rosmontis"]
@@ -198,13 +206,5 @@
     },
     "RelaunchAnchor@RA@RA15-End2": {
         "text": ["Term"]
-    },
-    "RelaunchAnchor@RA@RA1-DeployGatheringBaseSwipe": {
-        "preDelay": 500,
-        "specialParams": [600, 0, 37, 1]
-    },
-    "RelaunchAnchor@RA@RA1-DeployOperatorSwipe": {
-        "preDelay": 250,
-        "specialParams": [600, 0, 37, 1]
     }
 }
